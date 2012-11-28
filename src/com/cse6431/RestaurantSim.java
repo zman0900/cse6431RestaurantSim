@@ -9,6 +9,8 @@ import java.util.NoSuchElementException;
 import java.util.Queue;
 import java.util.Random;
 import java.util.Scanner;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CyclicBarrier;
 
@@ -19,14 +21,15 @@ public class RestaurantSim {
 	Queue<Diner> diners;
 	int numCooks;
 	int numTables;
+	BlockingQueue<Integer> tables;
 
 	private static final Random rnd = new Random();
 
-	private class Cook implements Runnable {
+	private class CookRunnable implements Runnable {
 
 		private int id;
 
-		public Cook(int id) {
+		public CookRunnable(int id) {
 			this.id = id;
 		}
 
@@ -57,25 +60,95 @@ public class RestaurantSim {
 
 	}
 
+	private class DinerRunnable implements Runnable {
+
+		private Diner diner;
+		private Integer table;
+		private int tableStartTime;
+
+		public DinerRunnable(Diner diner) {
+			this.diner = diner;
+		}
+
+		@Override
+		public void run() {
+			System.out.println("Diner " + diner.getId() + " arrived at time "
+					+ clock);
+			// Acquire table
+			acquireTable();
+			// for testing, loop on table for 5 ticks
+			boolean done = false;
+			while (!done) {
+				if (clock >= tableStartTime + 5) {
+					done = true;
+					try {
+						System.out.println("Diner " + diner.getId()
+								+ " left at time " + clock);
+						tables.put(table);
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				} else {
+					Thread.yield();
+				}
+			}
+		}
+
+		private void acquireTable() {
+			try {
+				table = tables.take(); // Blocking call if none available
+				tableStartTime = clock;
+				System.out.println("Diner " + diner.getId()
+						+ " acquired table " + table + " at time " + clock);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+
+	}
+
 	public RestaurantSim(Queue<Diner> diners, int numTables, int numCooks) {
 		clock = 0;
 		this.diners = diners;
 		this.numCooks = numCooks;
 		this.numTables = numTables;
 
+		// Build pool of 'table' resources
+		tables = new ArrayBlockingQueue<Integer>(numTables, true);
+		for (int i = 0; i < numTables; ++i) {
+			tables.offer(i);
+		}
+
 		barrier = new CyclicBarrier(numCooks, new Runnable() {
 			@Override
 			public void run() {
 				clock++;
 				System.out.println("Clock is now at " + clock);
+				// Start any new diner threads
+				startCurrentDiners();
 			}
 		});
-
 	}
 
 	public void run() {
 		for (int i = 0; i < numCooks; ++i) {
-			new Thread(new Cook(i)).start();
+			new Thread(new CookRunnable(i)).start();
+		}
+	}
+
+	private void startCurrentDiners() {
+		Diner next = diners.peek();
+		if (next != null) {
+			if (next.getArrivalTime() == clock) {
+				// TODO Next diner arrived now
+				diners.remove();
+				new Thread(new DinerRunnable(next)).start();
+			}
+		} else {
+			// TODO All diners arrived
+
 		}
 	}
 
