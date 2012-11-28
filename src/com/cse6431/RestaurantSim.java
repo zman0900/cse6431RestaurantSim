@@ -18,7 +18,9 @@ public class RestaurantSim {
 
 	final CyclicBarrier barrier;
 	int clock;
+	BlockingQueue<CookRunnable> cooks;
 	Queue<Diner> diners;
+	boolean okToStop = false;
 	int numCooks;
 	int numTables;
 	BlockingQueue<Integer> tables;
@@ -27,25 +29,36 @@ public class RestaurantSim {
 
 	private class CookRunnable implements Runnable {
 
+		private Diner diner;
+		private Object food = new Object(); // dummy object
 		private int id;
 
 		public CookRunnable(int id) {
+			this.diner = null;
 			this.id = id;
 		}
 
 		@Override
 		public void run() {
-			while (true) {
-				int sleepTime = rnd.nextInt(5000);
-				System.out.println("Cook " + id + " sleeping for " + sleepTime
-						+ " msecs");
-				try {
-					Thread.sleep(sleepTime);
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
+			while (!okToStop) {
+				if (diner != null) {
+					// For testing, sleep randomly then finish cooking
+					int sleepTime = rnd.nextInt(5000);
+					System.out.println("Cook " + id + " sleeping for "
+							+ sleepTime + " msecs");
+					try {
+						Thread.sleep(sleepTime);
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					System.out.println("Cook " + id + " has clock " + clock);
+					diner = null;
+					synchronized (food) {
+						food.notify();
+					}
 				}
-				System.out.println("Cook " + id + " has clock " + clock);
+				// Wait for next clock tick
 				try {
 					barrier.await();
 				} catch (InterruptedException e) {
@@ -55,6 +68,22 @@ public class RestaurantSim {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
+			}
+			System.out.println("Cook " + id + " done at time " + clock);
+		}
+
+		public void prepareOrderFor(Diner diner) {
+			this.diner = diner;
+		}
+
+		public void waitForFood() {
+			try {
+				synchronized (food) {
+					food.wait();
+				}
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
 			}
 		}
 
@@ -76,6 +105,8 @@ public class RestaurantSim {
 					+ clock);
 			// Acquire table
 			acquireTable();
+			// Acquire food
+			acquireFood();
 			// for testing, loop on table for 5 ticks
 			boolean done = false;
 			while (!done) {
@@ -90,7 +121,7 @@ public class RestaurantSim {
 						e.printStackTrace();
 					}
 				} else {
-					Thread.yield();
+					Thread.yield(); // TODO doesn't work well
 				}
 			}
 		}
@@ -101,6 +132,19 @@ public class RestaurantSim {
 				tableStartTime = clock;
 				System.out.println("Diner " + diner.getId()
 						+ " acquired table " + table + " at time " + clock);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+
+		private void acquireFood() {
+			// TODO Get cook, block until food is ready
+			try {
+				CookRunnable cook = cooks.take();
+				cook.prepareOrderFor(diner); // Give cook order
+				cook.waitForFood(); // Blocks until food ready
+				cooks.put(cook); // Done with cook
 			} catch (InterruptedException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
@@ -132,9 +176,14 @@ public class RestaurantSim {
 		});
 	}
 
-	public void run() {
+	public void startSim() {
+		// Build pool of 'cook' threads
+		cooks = new ArrayBlockingQueue<CookRunnable>(numCooks, true);
 		for (int i = 0; i < numCooks; ++i) {
-			new Thread(new CookRunnable(i)).start();
+			CookRunnable c = new CookRunnable(i);
+			cooks.offer(c);
+			// Start thread
+			new Thread(c).start();
 		}
 	}
 
@@ -147,8 +196,11 @@ public class RestaurantSim {
 				new Thread(new DinerRunnable(next)).start();
 			}
 		} else {
-			// TODO All diners arrived
-
+			// All diners arrived
+			if (cooks.size() == numCooks) {
+				// All cooks idle, time to quit
+				okToStop = true;
+			}
 		}
 	}
 
@@ -177,7 +229,7 @@ public class RestaurantSim {
 
 			// Run simulation
 			RestaurantSim rs = new RestaurantSim(q, numTables, numCooks);
-			rs.run();
+			rs.startSim();
 
 		} catch (FileNotFoundException e) {
 			System.out.println("Cannot open file for reading");
