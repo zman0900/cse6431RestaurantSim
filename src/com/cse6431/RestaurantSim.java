@@ -11,20 +11,22 @@ import java.util.Random;
 import java.util.Scanner;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
 
 public class RestaurantSim {
 
 	// Time of each clock tick in msec
-	private static final int clockResolution = 1000;
+	private static final int clockResolution = 500;
 
 	private Integer clock;
 	private final Object clockLock = new Object();
 	private BlockingQueue<CookRunnable> cooks;
 	private Queue<Diner> diners;
-	private boolean okToStop = false;
+	private CountDownLatch dinersCounter;
 	private int numCooks;
 	private int numTables;
 	private BlockingQueue<Integer> tables;
+	private boolean timeToStop = false;
 
 	private static final Random rnd = new Random();
 
@@ -42,7 +44,7 @@ public class RestaurantSim {
 		@Override
 		public void run() {
 			System.out.println("Cook " + id + " started at " + clock);
-			while (!okToStop) {
+			while (!timeToStop) {
 				System.out.println("Cook " + id + " has clock " + clock);
 				if (diner != null) {
 					// For testing, sleep randomly then finish cooking
@@ -70,7 +72,6 @@ public class RestaurantSim {
 				}
 
 			}
-			System.out.println("Cook " + id + " done at time " + clock);
 		}
 
 		public void prepareOrderFor(Diner diner) {
@@ -124,8 +125,6 @@ public class RestaurantSim {
 					e.printStackTrace();
 				}
 			}
-			System.out.println("Diner " + diner.getId() + " left at time "
-					+ clock);
 			// Leave table
 			try {
 				tables.put(table);
@@ -133,6 +132,10 @@ public class RestaurantSim {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
+			// Notify of leaving
+			dinersCounter.countDown();
+			System.out.println("Diner " + diner.getId() + " left at time "
+					+ clock);
 		}
 
 		private void acquireTable() {
@@ -172,6 +175,8 @@ public class RestaurantSim {
 		for (int i = 0; i < numTables; ++i) {
 			tables.offer(i);
 		}
+		// Use this to stop when all diners served
+		dinersCounter = new CountDownLatch(diners.size());
 	}
 
 	public void startSim() {
@@ -184,10 +189,10 @@ public class RestaurantSim {
 			new Thread(c).start();
 		}
 		// Clock thread
-		new Thread(new Runnable() {
+		Thread clockThread = new Thread(new Runnable() {
 			@Override
 			public void run() {
-				while (true) {
+				while (!timeToStop) {
 					try {
 						Thread.sleep(clockResolution);
 					} catch (InterruptedException e) {
@@ -203,10 +208,21 @@ public class RestaurantSim {
 					startCurrentDiners();
 				}
 			}
-		}).start();
+		});
+		clockThread.start();
 		// Start any diners arriving at time 0
 		startCurrentDiners();
 		System.out.println("Threads started");
+		// Wait for all diners to leave
+		try {
+			dinersCounter.await();
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		System.out.println("All diners left");
+		// Stop clock and cooks
+		timeToStop = true;
 	}
 
 	private void startCurrentDiners() {
@@ -216,12 +232,6 @@ public class RestaurantSim {
 				// TODO Next diner arrived now
 				diners.remove();
 				new Thread(new DinerRunnable(next)).start();
-			}
-		} else {
-			// All diners arrived
-			if (cooks.size() == numCooks) {
-				// All cooks idle, time to quit
-				okToStop = true;
 			}
 		}
 	}
