@@ -47,7 +47,6 @@ public class RestaurantSim {
 
 		@Override
 		public void run() {
-			System.out.println("Cook " + id + " started at " + clock);
 			while (!timeToStop) {
 				if (diner != null) {
 					System.out.println("Cook " + id
@@ -59,17 +58,14 @@ public class RestaurantSim {
 					// Don't wait on one machine while others may be free
 					while (remainingFries > 0 && needsCoke) {
 						if (remainingBurgers > 0 && grill.tryLock()) {
-							System.out.println("empty grill line");
 							userGrill();
 							grill.unlock();
 							remainingBurgers--;
 						} else if (remainingFries > 0 && frier.tryLock()) {
-							System.out.println("empty frier line");
 							useFrier();
 							frier.unlock();
 							remainingFries--;
 						} else if (needsCoke && cokeMachine.tryLock()) {
-							System.out.println("empty coke line");
 							useCokeMachine();
 							cokeMachine.unlock();
 							needsCoke = false;
@@ -81,7 +77,6 @@ public class RestaurantSim {
 											* grillWaitTime < cokeMachineWaitTime)) {
 								// grill
 								grill.lock();
-								System.out.println("grill shortest line");
 								userGrill();
 								grill.unlock();
 								remainingBurgers--;
@@ -91,14 +86,12 @@ public class RestaurantSim {
 											* frierWaitTime < cokeMachineWaitTime)) {
 								// Frier
 								frier.lock();
-								System.out.println("frier shortest line");
 								useFrier();
 								frier.unlock();
 								remainingFries--;
 							} else if (needsCoke) {
 								// coke machine
 								cokeMachine.lock();
-								System.out.println("coke shortest line");
 								useCokeMachine();
 								cokeMachine.unlock();
 								needsCoke = false;
@@ -108,7 +101,6 @@ public class RestaurantSim {
 					// Cook any remaining burgers
 					while (remainingBurgers > 0) {
 						grill.lock();
-						System.out.println("remaining burger");
 						userGrill();
 						grill.unlock();
 						remainingBurgers--;
@@ -215,6 +207,7 @@ public class RestaurantSim {
 		public void run() {
 			System.out.println("Diner " + diner.getId() + " arrived at time "
 					+ clock);
+			int startTime = clock;
 			// Acquire table
 			acquireTable();
 			// Acquire food
@@ -243,7 +236,7 @@ public class RestaurantSim {
 			// Notify of leaving
 			dinersCounter.countDown();
 			System.out.println("Diner " + diner.getId() + " left at time "
-					+ clock);
+					+ clock + " after " + (clock - startTime) + " minutes");
 		}
 
 		private void acquireTable() {
@@ -323,7 +316,6 @@ public class RestaurantSim {
 		clockThread.start();
 		// Start any diners arriving at time 0
 		startCurrentDiners();
-		System.out.println("Threads started");
 		// Wait for all diners to leave
 		try {
 			dinersCounter.await();
