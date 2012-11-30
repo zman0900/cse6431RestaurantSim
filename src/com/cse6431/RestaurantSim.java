@@ -37,6 +37,7 @@ public class RestaurantSim {
 	private class CookRunnable implements Runnable {
 
 		private Diner diner;
+		private final Object dinerLock = new Object();
 		private final Object food = new Object(); // dummy object
 		private int id;
 
@@ -111,10 +112,11 @@ public class RestaurantSim {
 						food.notify();
 					}
 				}
-				// Wait for next clock tick
+				// Wait for next diner
 				try {
-					synchronized (clockLock) {
-						clockLock.wait();
+					synchronized (dinerLock) {
+						// wakeup periodically so timeToStop isn't missed
+						dinerLock.wait(500);
 					}
 				} catch (InterruptedException e) {
 					e.printStackTrace();
@@ -127,6 +129,9 @@ public class RestaurantSim {
 			System.out.println("Cook " + id + " received order for diner "
 					+ diner.getId());
 			this.diner = diner;
+			synchronized (dinerLock) {
+				dinerLock.notify();
+			}
 		}
 
 		public void waitForFood() {
