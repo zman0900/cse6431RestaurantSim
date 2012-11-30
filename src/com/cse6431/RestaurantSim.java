@@ -11,26 +11,27 @@ import java.util.Random;
 import java.util.Scanner;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.BrokenBarrierException;
-import java.util.concurrent.CyclicBarrier;
 
 public class RestaurantSim {
 
-	final CyclicBarrier barrier;
-	Integer clock;
-	BlockingQueue<CookRunnable> cooks;
-	Queue<Diner> diners;
-	boolean okToStop = false;
-	int numCooks;
-	int numTables;
-	BlockingQueue<Integer> tables;
+	// Time of each clock tick in msec
+	private static final int clockResolution = 1000;
+
+	private Integer clock;
+	private final Object clockLock = new Object();
+	private BlockingQueue<CookRunnable> cooks;
+	private Queue<Diner> diners;
+	private boolean okToStop = false;
+	private int numCooks;
+	private int numTables;
+	private BlockingQueue<Integer> tables;
 
 	private static final Random rnd = new Random();
 
 	private class CookRunnable implements Runnable {
 
 		private Diner diner;
-		private Object food = new Object(); // dummy object
+		private final Object food = new Object(); // dummy object
 		private int id;
 
 		public CookRunnable(int id) {
@@ -40,7 +41,9 @@ public class RestaurantSim {
 
 		@Override
 		public void run() {
+			System.out.println("Cook " + id + " started at " + clock);
 			while (!okToStop) {
+				System.out.println("Cook " + id + " has clock " + clock);
 				if (diner != null) {
 					// For testing, sleep randomly then finish cooking
 					int sleepTime = rnd.nextInt(5000);
@@ -52,7 +55,6 @@ public class RestaurantSim {
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
-					System.out.println("Cook " + id + " has clock " + clock);
 					diner = null;
 					synchronized (food) {
 						food.notify();
@@ -60,19 +62,20 @@ public class RestaurantSim {
 				}
 				// Wait for next clock tick
 				try {
-					barrier.await();
+					synchronized (clockLock) {
+						clockLock.wait();
+					}
 				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				} catch (BrokenBarrierException e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
+
 			}
 			System.out.println("Cook " + id + " done at time " + clock);
 		}
 
 		public void prepareOrderFor(Diner diner) {
+			System.out.println("Cook " + id + " received order for diner "
+					+ diner.getId());
 			this.diner = diner;
 		}
 
@@ -112,12 +115,14 @@ public class RestaurantSim {
 			System.out.println("Diner " + diner.getId() + " served at time "
 					+ foodStartTime);
 			while (foodStartTime + 30 > clock) {
-				/*try {
-					clock.wait();
+				try {
+					synchronized (clockLock) {
+						clockLock.wait();
+					}
 				} catch (InterruptedException e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
-				}*/
+				}
 			}
 			System.out.println("Diner " + diner.getId() + " left at time "
 					+ clock);
@@ -133,7 +138,6 @@ public class RestaurantSim {
 		private void acquireTable() {
 			try {
 				table = tables.take(); // Blocking call if none available
-
 			} catch (InterruptedException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
@@ -168,18 +172,6 @@ public class RestaurantSim {
 		for (int i = 0; i < numTables; ++i) {
 			tables.offer(i);
 		}
-
-		barrier = new CyclicBarrier(numCooks, new Runnable() {
-			@Override
-			public void run() {
-				clock++;
-				System.out.println("Clock is now at " + clock);
-				// notify waiting diners
-				//clock.notifyAll();
-				// Start any new diner threads
-				startCurrentDiners();
-			}
-		});
 	}
 
 	public void startSim() {
@@ -191,6 +183,29 @@ public class RestaurantSim {
 			// Start thread
 			new Thread(c).start();
 		}
+		// Clock thread
+		new Thread(new Runnable() {
+			@Override
+			public void run() {
+				while (true) {
+					try {
+						Thread.sleep(clockResolution);
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					clock++;
+					System.out.println("=== CLOCK INCREMENTED === " + clock);
+					synchronized (clockLock) {
+						clockLock.notifyAll();
+					}
+					// Start new diners
+					startCurrentDiners();
+				}
+			}
+		}).start();
+		// Start any diners arriving at time 0
+		startCurrentDiners();
 		System.out.println("Threads started");
 	}
 
