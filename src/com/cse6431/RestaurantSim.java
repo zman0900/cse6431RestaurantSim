@@ -56,7 +56,7 @@ public class RestaurantSim {
 					int remainingFries = diner.getNumFries();
 					boolean needsCoke = diner.wantsCoke();
 					// Don't wait on one machine while others may be free
-					while (remainingFries > 0 && needsCoke) {
+					while (remainingFries > 0 || needsCoke) {
 						if (remainingBurgers > 0 && grill.tryLock()) {
 							userGrill();
 							grill.unlock();
