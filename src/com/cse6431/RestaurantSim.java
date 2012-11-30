@@ -17,7 +17,7 @@ import java.util.concurrent.CyclicBarrier;
 public class RestaurantSim {
 
 	final CyclicBarrier barrier;
-	int clock;
+	Integer clock;
 	BlockingQueue<CookRunnable> cooks;
 	Queue<Diner> diners;
 	boolean okToStop = false;
@@ -93,7 +93,7 @@ public class RestaurantSim {
 
 		private Diner diner;
 		private Integer table;
-		private int tableStartTime;
+		private int foodStartTime;
 
 		public DinerRunnable(Diner diner) {
 			this.diner = diner;
@@ -107,35 +107,39 @@ public class RestaurantSim {
 			acquireTable();
 			// Acquire food
 			acquireFood();
-			// for testing, loop on table for 5 ticks
-			boolean done = false;
-			while (!done) {
-				if (clock >= tableStartTime + 5) {
-					done = true;
-					try {
-						System.out.println("Diner " + diner.getId()
-								+ " left at time " + clock);
-						tables.put(table);
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
-				} else {
-					Thread.yield(); // TODO doesn't work well
-				}
+			// Eat for 30 min
+			foodStartTime = clock;
+			System.out.println("Diner " + diner.getId() + " served at time "
+					+ foodStartTime);
+			while (foodStartTime + 30 > clock) {
+				/*try {
+					clock.wait();
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}*/
+			}
+			System.out.println("Diner " + diner.getId() + " left at time "
+					+ clock);
+			// Leave table
+			try {
+				tables.put(table);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
 			}
 		}
 
 		private void acquireTable() {
 			try {
 				table = tables.take(); // Blocking call if none available
-				tableStartTime = clock;
-				System.out.println("Diner " + diner.getId()
-						+ " acquired table " + table + " at time " + clock);
+
 			} catch (InterruptedException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
+			System.out.println("Diner " + diner.getId() + " acquired table "
+					+ table + " at time " + clock);
 		}
 
 		private void acquireFood() {
@@ -170,6 +174,8 @@ public class RestaurantSim {
 			public void run() {
 				clock++;
 				System.out.println("Clock is now at " + clock);
+				// notify waiting diners
+				//clock.notifyAll();
 				// Start any new diner threads
 				startCurrentDiners();
 			}
@@ -185,6 +191,7 @@ public class RestaurantSim {
 			// Start thread
 			new Thread(c).start();
 		}
+		System.out.println("Threads started");
 	}
 
 	private void startCurrentDiners() {
