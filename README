@@ -2,9 +2,7 @@ Restaurant Simulation for CS&E 6431
 ====================
 
 Simulation of restaurant to demonstrate Java synchronization primitives.
-
 Every 500 milliseconds represents one minute in the simulation.
-
 Code is available at https://github.com/zman0900/cse6431RestaurantSim
 
 
@@ -17,6 +15,5 @@ Run make to create jar file.  Only tested with GNU make on Linux.
 Running
 -------
 
-```
 java -jar RestaurantSim.jar <input-file>
-```
+
