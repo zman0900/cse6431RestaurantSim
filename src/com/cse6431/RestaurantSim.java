@@ -7,16 +7,19 @@ import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.NoSuchElementException;
 import java.util.Queue;
-import java.util.Random;
 import java.util.Scanner;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class RestaurantSim {
 
 	// Time of each clock tick in msec
 	private static final int clockResolution = 500;
+	private static final int cokeMachineWaitTime = 1;
+	private static final int frierWaitTime = 3;
+	private static final int grillWaitTime = 5;
 
 	private Integer clock;
 	private final Object clockLock = new Object();
@@ -24,11 +27,12 @@ public class RestaurantSim {
 	private Queue<Diner> diners;
 	private CountDownLatch dinersCounter;
 	private int numCooks;
-	private int numTables;
 	private BlockingQueue<Integer> tables;
 	private boolean timeToStop = false;
 
-	private static final Random rnd = new Random();
+	private ReentrantLock cokeMachine;
+	private ReentrantLock frier;
+	private ReentrantLock grill;
 
 	private class CookRunnable implements Runnable {
 
@@ -45,18 +49,71 @@ public class RestaurantSim {
 		public void run() {
 			System.out.println("Cook " + id + " started at " + clock);
 			while (!timeToStop) {
-				System.out.println("Cook " + id + " has clock " + clock);
 				if (diner != null) {
-					// For testing, sleep randomly then finish cooking
-					int sleepTime = rnd.nextInt(5000);
-					System.out.println("Cook " + id + " sleeping for "
-							+ sleepTime + " msecs");
-					try {
-						Thread.sleep(sleepTime);
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
+					System.out.println("Cook " + id
+							+ " starting order for diner " + diner.getId()
+							+ " at clock " + clock);
+					int remainingBurgers = diner.getNumBurgers();
+					int remainingFries = diner.getNumFries();
+					boolean needsCoke = diner.wantsCoke();
+					// Don't wait on one machine while others may be free
+					while (remainingFries > 0 && needsCoke) {
+						if (remainingBurgers > 0 && grill.tryLock()) {
+							System.out.println("empty grill line");
+							userGrill();
+							grill.unlock();
+							remainingBurgers--;
+						} else if (remainingFries > 0 && frier.tryLock()) {
+							System.out.println("empty frier line");
+							useFrier();
+							frier.unlock();
+							remainingFries--;
+						} else if (needsCoke && cokeMachine.tryLock()) {
+							System.out.println("empty coke line");
+							useCokeMachine();
+							cokeMachine.unlock();
+							needsCoke = false;
+						} else {
+							// wait in shortest line
+							if (remainingBurgers > 0
+									&& (remainingBurgers * grillWaitTime < remainingFries
+											* frierWaitTime && remainingBurgers
+											* grillWaitTime < cokeMachineWaitTime)) {
+								// grill
+								grill.lock();
+								System.out.println("grill shortest line");
+								userGrill();
+								grill.unlock();
+								remainingBurgers--;
+							} else if (remainingFries > 0
+									&& (remainingFries * frierWaitTime < remainingBurgers
+											* grillWaitTime && remainingFries
+											* frierWaitTime < cokeMachineWaitTime)) {
+								// Frier
+								frier.lock();
+								System.out.println("frier shortest line");
+								useFrier();
+								frier.unlock();
+								remainingFries--;
+							} else if (needsCoke) {
+								// coke machine
+								cokeMachine.lock();
+								System.out.println("coke shortest line");
+								useCokeMachine();
+								cokeMachine.unlock();
+								needsCoke = false;
+							}
+						}
 					}
+					// Cook any remaining burgers
+					while (remainingBurgers > 0) {
+						grill.lock();
+						System.out.println("remaining burger");
+						userGrill();
+						grill.unlock();
+						remainingBurgers--;
+					}
+					// Clear order, send food
 					diner = null;
 					synchronized (food) {
 						food.notify();
@@ -89,6 +146,57 @@ public class RestaurantSim {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
+		}
+
+		private void useCokeMachine() {
+			System.out.println("Using coke machine at time " + clock
+					+ " for diner " + diner.getId());
+			int start = clock;
+			while (start + cokeMachineWaitTime > clock) {
+				try {
+					synchronized (clockLock) {
+						clockLock.wait();
+					}
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+			}
+			System.out.println("Coke machine done at time " + clock
+					+ " for diner " + diner.getId());
+		}
+
+		private void useFrier() {
+			System.out.println("Using frier at time " + clock + " for diner "
+					+ diner.getId());
+			int start = clock;
+			while (start + frierWaitTime > clock) {
+				try {
+					synchronized (clockLock) {
+						clockLock.wait();
+					}
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+			}
+			System.out.println("Frier done at time " + clock + " for diner "
+					+ diner.getId());
+		}
+
+		private void userGrill() {
+			System.out.println("Using grill at time " + clock + " for diner "
+					+ diner.getId());
+			int start = clock;
+			while (start + grillWaitTime > clock) {
+				try {
+					synchronized (clockLock) {
+						clockLock.wait();
+					}
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+			}
+			System.out.println("Grill done at time " + clock + " for diner "
+					+ diner.getId());
 		}
 
 	}
@@ -168,13 +276,16 @@ public class RestaurantSim {
 		clock = 0;
 		this.diners = diners;
 		this.numCooks = numCooks;
-		this.numTables = numTables;
 
 		// Build pool of 'table' resources
 		tables = new ArrayBlockingQueue<Integer>(numTables, true);
 		for (int i = 0; i < numTables; ++i) {
 			tables.offer(i);
 		}
+		// Locks for kitchen stuff
+		frier = new ReentrantLock(true);
+		grill = new ReentrantLock(true);
+		cokeMachine = new ReentrantLock(true);
 		// Use this to stop when all diners served
 		dinersCounter = new CountDownLatch(diners.size());
 	}
@@ -220,7 +331,7 @@ public class RestaurantSim {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		System.out.println("All diners left");
+		System.out.println("All diners left at time " + clock);
 		// Stop clock and cooks
 		timeToStop = true;
 	}
