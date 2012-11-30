@@ -356,9 +356,9 @@ public class RestaurantSim {
 		try {
 			// Read input
 			BufferedReader in = new BufferedReader(new FileReader(args[0]));
-			int numDiners = Integer.parseInt(in.readLine());
-			int numTables = Integer.parseInt(in.readLine());
-			int numCooks = Integer.parseInt(in.readLine());
+			int numDiners = Integer.parseInt(in.readLine().trim());
+			int numTables = Integer.parseInt(in.readLine().trim());
+			int numCooks = Integer.parseInt(in.readLine().trim());
 
 			Queue<Diner> q = new ArrayDeque<Diner>(numDiners);
 			for (int i = 0; i < numDiners; ++i) {
@@ -376,6 +376,7 @@ public class RestaurantSim {
 			return;
 		} catch (NumberFormatException e) {
 			System.out.println("Bad input file format");
+			e.printStackTrace();
 			return;
 		} catch (IOException e) {
 			System.out.println("Failed reading file");
